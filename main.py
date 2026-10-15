@@ -89,19 +89,35 @@ def find_xml_entry(entries, target: Path):
 
 
 def make_zip_from_source(source: Path, destination: Path):
-    """Create a target-named ZIP; if source is a ZIP, copy its entries without extracting."""
+    """Create a target-named ZIP and name the contained ROM after the target ZIP."""
     temp = destination.with_name(destination.name + ".tmp")
     try:
         with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as out_zip:
             if zipfile.is_zipfile(source):
                 with zipfile.ZipFile(source, "r") as in_zip:
+                    # Rename the primary ROM file to match the target ZIP name.
+                    # Keep folders and auxiliary files (if any) unchanged.
+                    files = [info for info in in_zip.infolist() if not info.is_dir()]
+                    rom_files = [info for info in files if Path(info.filename).suffix.casefold() in {
+                        ".nes", ".gba", ".gb", ".gbc", ".sfc", ".smc", ".nds", ".n64", ".z64",
+                        ".v64", ".iso", ".bin", ".cue", ".chd", ".md", ".gen", ".sms", ".gg",
+                        ".pce", ".ws", ".wsc", ". a26"
+                    }]
+                    primary = rom_files[0] if len(rom_files) == 1 else None
                     for info in in_zip.infolist():
                         if info.is_dir():
                             out_zip.writestr(info, b"")
                         else:
-                            out_zip.writestr(info, in_zip.read(info.filename))
+                            arcname = info.filename
+                            if primary is not None and info.filename == primary.filename:
+                                parent = str(Path(info.filename).parent)
+                                renamed = destination.stem + Path(info.filename).suffix
+                                arcname = renamed if parent == "." else f"{parent}/{renamed}"
+                            out_zip.writestr(arcname, in_zip.read(info.filename))
             else:
-                out_zip.write(source, arcname=source.name)
+                # Example: DragonQuest.nes -> Popeye (Japan).zip containing
+                # Popeye (Japan).nes, so the internal ROM filename matches the target.
+                out_zip.write(source, arcname=f"{destination.stem}{source.suffix}")
         temp.replace(destination)
     finally:
         if temp.exists():
