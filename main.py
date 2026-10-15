@@ -7,6 +7,7 @@ import ssl
 import certifi
 import urllib.parse
 import urllib.request
+import webbrowser
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -281,18 +282,17 @@ class RomChangerApp(tk.Tk):
 
         searchrow = ttk.Frame(thumb_frame)
         searchrow.pack(fill="x", pady=(8, 4))
-        ttk.Label(searchrow, text="ネット画像候補（Wikimedia Commons）").pack(side="left")
+        ttk.Label(searchrow, text="Google画像検索").pack(side="left")
         ttk.Entry(searchrow, textvariable=self.search_var).pack(side="left", fill="x", expand=True, padx=8)
-        ttk.Button(searchrow, text="候補を検索", command=self.search_images).pack(side="right")
+        ttk.Button(searchrow, text="ブラウザーで検索", command=self.open_google_images).pack(side="right")
 
         mid = ttk.Frame(thumb_frame)
         mid.pack(fill="both", expand=True, pady=4)
         self.candidate_list = tk.Listbox(mid, height=6, exportselection=False)
-        self.candidate_list.pack(side="left", fill="both", expand=True)
-        self.candidate_list.bind("<<ListboxSelect>>", self.on_candidate_select)
-        self.preview_label = ttk.Label(mid, text="画像候補を選ぶとプレビューを表示します", anchor="center")
+        self.candidate_list.pack_forget()
+        self.preview_label = ttk.Label(mid, text="ローカル画像を選択するとプレビューを表示します", anchor="center")
         self.preview_label.pack(side="left", fill="both", expand=True, padx=10)
-        self.candidate_info = ttk.Label(thumb_frame, text="候補のライセンス・出典情報はここに表示されます", wraplength=850)
+        self.candidate_info = ttk.Label(thumb_frame, text="Google画像検索で画像を保存し、「ローカル画像…」から選択してください。", wraplength=850)
         self.candidate_info.pack(fill="x", anchor="w", pady=4)
 
         buttons = ttk.Frame(outer)
@@ -360,7 +360,35 @@ class RomChangerApp(tk.Tk):
         if path:
             self.image_var.set(path)
             self.selected_candidate = None
+            self.preview_local_image(Path(path))
             self.status_var.set("ローカル画像を選択しました。入れ替え実行時にタイトルを埋め込みます。")
+
+    def open_google_images(self):
+        query = self.search_var.get().strip() or self.title_var.get().strip()
+        if not query:
+            messagebox.showinfo("Google画像検索", "検索語または表示タイトルを入力してください。")
+            return
+        url = "https://www.google.com/search?" + urllib.parse.urlencode({"udm": "2", "q": query})
+        try:
+            webbrowser.open(url)
+            self.status_var.set("Google画像検索をブラウザーで開きました。画像を保存し、ローカル画像として選択してください。")
+        except Exception as exc:
+            messagebox.showerror("Google画像検索", f"ブラウザーを開けませんでした。\\n{exc}")
+
+    def preview_local_image(self, path: Path):
+        if Image is None:
+            self.preview_label.configure(image="", text="Pillowが未インストールです")
+            return
+        try:
+            with Image.open(path) as img:
+                preview = ImageOps.exif_transpose(img).convert("RGB")
+                preview.thumbnail((300, 360), Image.Resampling.LANCZOS)
+                self.preview_photo = ImageTk.PhotoImage(preview)
+            self.preview_label.configure(image=self.preview_photo, text="")
+            self.candidate_info.config(text=f"選択画像: {path}")
+        except Exception as exc:
+            self.preview_label.configure(image="", text="プレビューを取得できません")
+            self.status_var.set(f"プレビュー取得エラー: {exc}")
 
     def search_images(self):
         query = self.search_var.get().strip() or self.title_var.get().strip()
