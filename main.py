@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
+import certifi
 import urllib.parse
 import urllib.request
 import zipfile
@@ -20,6 +22,11 @@ except ImportError:
 
 APP_TITLE = "R36S PS202 ROM Changer"
 USER_AGENT = "R36S-PS202-RomChanger/0.1 (desktop utility)"
+
+
+def https_context():
+    """Use certifi's maintained CA bundle instead of a stale bundled/system CA list."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def next_backup_path(path: Path) -> Path:
@@ -200,7 +207,7 @@ def search_commons(query: str, limit: int = 8):
     }
     url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=15) as response:
+    with urllib.request.urlopen(req, timeout=15, context=https_context()) as response:
         data = json.loads(response.read().decode("utf-8"))
     pages = data.get("query", {}).get("pages", {})
     results = []
@@ -414,7 +421,7 @@ class RomChangerApp(tk.Tk):
             os.close(fd)
             req = urllib.request.Request(raw, headers={"User-Agent": USER_AGENT})
             try:
-                with urllib.request.urlopen(req, timeout=30) as response, open(name, "wb") as out:
+                with urllib.request.urlopen(req, timeout=30, context=https_context()) as response, open(name, "wb") as out:
                     shutil.copyfileobj(response, out)
             except Exception:
                 Path(name).unlink(missing_ok=True)
