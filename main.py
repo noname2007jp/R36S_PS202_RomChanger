@@ -41,7 +41,7 @@ def backup_file(path: Path) -> Path | None:
 
 
 def safe_xml_path(base_dir: Path, raw_path: str) -> Path:
-    raw = raw_path.strip().replace("\\\\", "/")
+    raw = raw_path.strip().replace("\\", "/")
     if raw.startswith("./"):
         raw = raw[2:]
     p = Path(raw)
@@ -488,7 +488,7 @@ class RomChangerApp(tk.Tk):
                     dimensions = existing.size
 
             # Prepare thumbnail first; if image processing fails, don't alter the ROM.
-            staged_image = img_target.with_name(img_target.name + ".new")
+            staged_image = img_target.with_name(img_target.stem + ".new" + img_target.suffix)
             create_titled_thumbnail(selected_image, staged_image, title, dimensions)
 
             rom_backup = backup_file(target)
