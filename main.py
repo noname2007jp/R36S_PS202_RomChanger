@@ -101,7 +101,7 @@ def make_zip_from_source(source: Path, destination: Path):
                     rom_files = [info for info in files if Path(info.filename).suffix.casefold() in {
                         ".nes", ".gba", ".gb", ".gbc", ".sfc", ".smc", ".nds", ".n64", ".z64",
                         ".v64", ".iso", ".bin", ".cue", ".chd", ".md", ".gen", ".sms", ".gg",
-                        ".pce", ".ws", ".wsc", ". a26"
+                        ".pce", ".ws", ".wsc", ".a26"
                     }]
                     primary = rom_files[0] if len(rom_files) == 1 else None
                     for info in in_zip.infolist():
