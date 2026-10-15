@@ -423,7 +423,7 @@ class RomChangerApp(tk.Tk):
         self.candidate_info.config(text=f"ライセンス: {item['license']} | 出典: {item['source_url']}")
         try:
             req = urllib.request.Request(item["url"], headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=15) as response:
+            with urllib.request.urlopen(req, timeout=15, context=https_context()) as response:
                 raw = response.read()
             import io
             with Image.open(io.BytesIO(raw)) as img:
