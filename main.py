@@ -344,6 +344,8 @@ class RomChangerApp(tk.Tk):
             self.target_image_path = entry["image"]
             if entry["image"]:
                 self.image_var.set(str(entry["image"]))
+                if entry["image"].is_file():
+                    self.preview_local_image(entry["image"])
                 self.status_var.set(f"XMLからサムネイル参照先を取得: {entry['image']}")
             else:
                 self.image_var.set("")
