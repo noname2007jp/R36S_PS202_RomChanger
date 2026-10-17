@@ -457,21 +457,18 @@ class App(tk.Tk):
             self.choose_image()
         elif column == "#3" and iid:
             item = next((x for x in self.items if str(x["uid"]) == iid), None)
-            if item and not item["system"]:
+            if item:
                 self._edit_unknown_system(item, iid)
 
     def _edit_unknown_system(self, item, iid):
-        # Only rows whose system could not be inferred receive this dropdown.
+        # Every row can change or correct its system/output folder.
         bbox = self.tree.bbox(iid, "#3")
         if not bbox:
             return
         x, y, width, height = bbox
         combo = ttk.Combobox(self.tree, values=SYSTEMS, state="readonly")
         combo.place(x=x, y=y, width=width, height=height)
-        if item.get("output_folder"):
-            combo.set(item["system"])
-        else:
-            combo.set("")
+        combo.set(item.get("output_folder") or item.get("system") or "")
         combo.focus_set()
 
         def apply(_event=None):
@@ -480,7 +477,7 @@ class App(tk.Tk):
             if not chosen:
                 return
             item["system"] = chosen
-            # Use the chosen system as the destination folder under roms.
+            # An explicit dropdown choice overrides source-folder inference and can be changed later.
             item["output_folder"] = chosen
             self._refresh_row(item)
             self.status_var.set(f"{item['path'].name}: システム／出力先を {chosen} に設定しました。")
@@ -534,8 +531,15 @@ class App(tk.Tk):
                 xml_target = target_dir / "gamelist.xml"
                 for target in (rom_target, img_target):
                     key = str(target).casefold()
-                    if target.exists() or key in reserved:
-                        raise FileExistsError(f"既存または重複する出力先があります:\n{target}")
+                    if target.exists():
+                        raise FileExistsError(
+                            f"出力先に同名ファイルが既に存在します:\n{target}"
+                        )
+                    if key in reserved:
+                        raise FileExistsError(
+                            f"複数のROMが同じ出力ファイル名になります。\n"
+                            f"ROM名や出力先システムを変更してください:\n{target}"
+                        )
                     reserved.add(key)
                 planned_item = {"item": item, "target_dir": target_dir, "system": system,
                                 "rom_target": rom_target, "img_target": img_target,
@@ -545,8 +549,10 @@ class App(tk.Tk):
 
             for folder in xml_groups:
                 xml_path = folder / "gamelist.xml"
-                if xml_path.exists() or str(xml_path).casefold() in reserved:
+                if xml_path.exists():
                     raise FileExistsError(f"既存の gamelist.xml があるため中止します:\n{xml_path}")
+                if str(xml_path).casefold() in reserved:
+                    raise FileExistsError(f"ROMまたは画像の出力先が gamelist.xml と重複しています:\n{xml_path}")
 
         except Exception as exc:
             messagebox.showerror("事前確認エラー", f"{exc}\n\nファイルはコピーしていません。")
