@@ -5,12 +5,15 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import textwrap
 
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageTk, ImageDraw, ImageFont
 except ImportError:
     Image = None
     ImageTk = None
+    ImageDraw = None
+    ImageFont = None
 
 SYSTEMS = [
     "SMS", "arcade", "atari2600", "atarilynx", "cps1", "cps2", "cps3",
@@ -33,10 +36,132 @@ ROM_EXTS = {
 }
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif"}
 
+# Generic illustrated hardware silhouettes are drawn locally; no image download is needed.
+SYSTEM_STYLE = {
+    "nes": ("#202d49", "#e9edf5", "NES / FAMICOM", "console"),
+    "snes": ("#40305f", "#eee8ff", "SUPER NINTENDO", "console"),
+    "psx": ("#263746", "#e4e9ee", "PLAYSTATION", "playstation"),
+    "psp": ("#244c66", "#e7f7ff", "PLAYSTATION PORTABLE", "handheld"),
+    "gb": ("#334b3a", "#e6f2c7", "GAME BOY", "handheld"),
+    "gbc": ("#403b6b", "#f0eaff", "GAME BOY COLOR", "handheld"),
+    "gba": ("#35466d", "#e9efff", "GAME BOY ADVANCE", "handheld"),
+    "gamegear": ("#3f4b55", "#eaf0f4", "GAME GEAR", "handheld"),
+    "genesis": ("#303744", "#e6e9ef", "SEGA GENESIS", "console"),
+    "megadrive": ("#303744", "#e6e9ef", "MEGA DRIVE", "console"),
+    "SMS": ("#34485d", "#e8f2fa", "SEGA MASTER SYSTEM", "console"),
+    "wonder": ("#37514d", "#e8f7ee", "WONDERSWAN", "handheld"),
+    "pcengine": ("#4c3545", "#f7eaf0", "PC ENGINE", "console"),
+    "atari2600": ("#473a32", "#f7eadb", "ATARI 2600", "console"),
+    "atarilynx": ("#3c4650", "#eaf0f5", "ATARI LYNX", "handheld"),
+    "arcade": ("#4a2f36", "#fff0f2", "ARCADE", "arcade"),
+    "cps1": ("#4a2f36", "#fff0f2", "CAPCOM CPS-1", "arcade"),
+    "cps2": ("#4a2f36", "#fff0f2", "CAPCOM CPS-2", "arcade"),
+    "cps3": ("#4a2f36", "#fff0f2", "CAPCOM CPS-3", "arcade"),
+}
+
 def xml_text(parent, tag, value):
     child = ET.SubElement(parent, tag)
     child.text = str(value)
     return child
+
+def _font(size, bold=False):
+    if ImageFont is None:
+        return None
+    candidates = (
+        [r"C:\Windows\Fonts\arialbd.ttf", r"C:\Windows\Fonts\segoeuib.ttf"]
+        if bold else
+        [r"C:\Windows\Fonts\arial.ttf", r"C:\Windows\Fonts\segoeui.ttf"]
+    )
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            pass
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf", size)
+    except OSError:
+        return ImageFont.load_default()
+
+def create_placeholder_image(output_path: Path, title: str, system: str):
+    """Create a system-themed console illustration with the ROM title."""
+    if Image is None:
+        raise RuntimeError("代替画像の生成にはPillowが必要です。")
+    bg, fg, hardware_label, kind = SYSTEM_STYLE.get(
+        system, ("#303b50", "#edf2fa", system.upper(), "console")
+    )
+    width, height = 640, 400
+    image = Image.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(image)
+
+    # Subtle background pattern and frame.
+    for x in range(0, width, 40):
+        draw.line((x, 0, x, height), fill=bg, width=1)
+    for y in range(0, height, 40):
+        draw.line((0, y, width, y), fill=bg, width=1)
+    draw.rounded_rectangle((14, 14, width - 15, height - 15), radius=22,
+                           outline=fg, width=3)
+
+    # Stylized hardware, not a photograph or a copied product image.
+    if kind == "handheld":
+        draw.rounded_rectangle((205, 55, 435, 210), radius=28, fill="#20242b", outline=fg, width=4)
+        draw.rounded_rectangle((235, 77, 405, 150), radius=8, fill="#8db4b5", outline="#111820", width=3)
+        draw.rectangle((249, 88, 391, 139), fill="#577f87")
+        draw.rectangle((270, 108, 370, 120), fill="#a8c9c0")
+        draw.ellipse((386, 165, 407, 186), fill="#b74f59", outline=fg, width=2)
+        draw.ellipse((357, 178, 378, 199), fill="#d4b25d", outline=fg, width=2)
+        draw.rectangle((229, 166, 267, 177), fill=fg)
+        draw.rectangle((242, 153, 254, 190), fill=fg)
+    elif kind == "playstation":
+        draw.rounded_rectangle((185, 75, 455, 178), radius=18, fill="#d6d9dc", outline=fg, width=4)
+        draw.ellipse((216, 104, 260, 148), fill="#8b929b", outline="#353b43", width=3)
+        draw.ellipse((379, 104, 423, 148), fill="#8b929b", outline="#353b43", width=3)
+        draw.line((238, 114, 238, 138), fill="#303842", width=4)
+        draw.line((226, 126, 250, 126), fill="#303842", width=4)
+        draw.ellipse((389, 113, 400, 124), fill="#9b5362")
+        draw.ellipse((402, 128, 413, 139), fill="#648aab")
+        draw.rounded_rectangle((295, 105, 345, 150), radius=6, fill="#303842")
+    elif kind == "arcade":
+        draw.rounded_rectangle((225, 50, 415, 220), radius=14, fill="#24232c", outline=fg, width=4)
+        draw.rectangle((250, 72, 390, 145), fill="#9b6479", outline=fg, width=3)
+        draw.polygon([(265, 130), (290, 91), (320, 130)], fill="#f0c36a")
+        draw.ellipse((330, 91, 372, 133), outline="#e7edf6", width=5)
+        draw.rectangle((245, 159, 395, 180), fill="#55525f")
+        draw.ellipse((285, 164, 301, 180), fill="#c95f65")
+        draw.ellipse((315, 164, 331, 180), fill="#d8b85e")
+    else:
+        draw.rounded_rectangle((180, 80, 460, 185), radius=18, fill="#c5cbd1", outline=fg, width=4)
+        draw.rectangle((205, 95, 435, 113), fill="#737d89")
+        draw.ellipse((218, 128, 258, 168), fill="#343b45")
+        draw.rectangle((231, 137, 245, 159), fill=fg)
+        draw.rectangle((222, 144, 254, 152), fill=fg)
+        draw.ellipse((376, 130, 396, 150), fill="#b6535f")
+        draw.ellipse((403, 148, 423, 168), fill="#d3b15c")
+        draw.rectangle((295, 143, 340, 165), fill="#707a86")
+
+    label_font = _font(19, True)
+    title_font = _font(28, True)
+    draw.text((width // 2, 235), hardware_label, font=label_font, fill=fg, anchor="mm")
+
+    # Wrap long titles to fit. Use the filename stem as the display title.
+    clean_title = title.strip() or "Unknown title"
+    max_chars = 30
+    lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]
+    if len(lines) > 3:
+        lines = lines[:3]
+        lines[-1] = lines[-1][:max_chars - 3] + "..."
+    while title_font.size > 17 and any(draw.textbbox((0, 0), line, font=title_font)[2] > 570 for line in lines):
+        title_font = _font(title_font.size - 2, True)
+    panel_top = 268
+    draw.rounded_rectangle((36, panel_top, width - 36, 366), radius=16, fill="#111820", outline=fg, width=2)
+    line_height = 32
+    total_height = len(lines) * line_height
+    y = panel_top + (98 - total_height) // 2
+    for line in lines:
+        draw.text((width // 2, y), line, font=title_font, fill="#ffffff", anchor="mt")
+        y += line_height
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path, format="PNG")
 
 class ImagePicker(tk.Toplevel):
     def __init__(self, parent, current=None):
@@ -240,10 +365,10 @@ class App(tk.Tk):
 
     def _insert(self, item):
         path, image = item["path"], item["image"]
-        output = path.stem + image.suffix.lower() if image else ""
+        output = path.stem + image.suffix.lower() if image else "(自動生成)"
         self.tree.insert("", "end", iid=str(item["uid"]), values=(
             path.name, item["folder"] or "（上位フォルダ直下）",
-            item["system"] or "未指定", str(image) if image else "（未指定）", output
+            item["system"] or "未指定", str(image) if image else "（未指定・自動生成）", output
         ))
 
     def _selected_items(self):
@@ -257,8 +382,8 @@ class App(tk.Tk):
         path, image = item["path"], item["image"]
         self.tree.item(iid, values=(
             path.name, item["folder"] or "（上位フォルダ直下）",
-            item["system"] or "未指定", str(image) if image else "（未指定）",
-            path.stem + image.suffix.lower() if image else ""
+            item["system"] or "未指定", str(image) if image else "（未指定・自動生成）",
+            path.stem + image.suffix.lower() if image else "(自動生成)"
         ))
 
     def choose_image(self):
@@ -324,8 +449,7 @@ class App(tk.Tk):
     def on_double_click(self, event):
         if self.tree.identify("region", event.x, event.y) != "cell":
             return
-        col = self.tree.identify_column(event.x)
-        if col == "#4":
+        if self.tree.identify_column(event.x) == "#4":
             self.choose_image()
 
     def _target_folder(self, item, dest):
@@ -342,12 +466,15 @@ class App(tk.Tk):
         if not self.items:
             messagebox.showerror("実行できません", "処理対象のROMがありません。")
             return
+        if Image is None:
+            messagebox.showerror("必要なライブラリがありません", "画像処理用のPillowが必要です。EXEを再ビルドしてください。")
+            return
         if not source.is_dir() or not dest.is_dir():
             messagebox.showerror("入力エラー", "有効な保存元とコピー先のフォルダを指定してください。")
             return
         if not messagebox.askyesno("最終確認",
-            f"リストに残っているROM {len(self.items)}件をコピーし、フォルダごとに gamelist.xml を生成します。\n"
-            "既存ファイルは上書きせず、衝突があれば処理を中止します。\n続行しますか？"):
+            f"リストに残っているROM {len(self.items)}件をコピーし、未指定画像はシステム別の代替画像を自動生成します。\n"
+            "フォルダごとに gamelist.xml を生成します。既存ファイルは上書きしません。\n続行しますか？"):
             return
 
         planned = []
@@ -357,15 +484,15 @@ class App(tk.Tk):
             for item in self.items:
                 target_dir = self._target_folder(item, dest)
                 rom_target = target_dir / item["path"].name
-                img_target = (target_dir / "images" / (item["path"].stem + item["image"].suffix.lower())) if item["image"] else None
+                system = item["system"] or target_dir.name
+                img_target = (target_dir / "images" / (item["path"].stem + item["image"].suffix.lower())) if item["image"] else (target_dir / "images" / (item["path"].stem + ".png"))
                 xml_target = target_dir / "gamelist.xml"
                 for target in (rom_target, img_target):
-                    if target:
-                        key = str(target).casefold()
-                        if target.exists() or key in reserved:
-                            raise FileExistsError(f"既存または重複する出力先があります:\n{target}")
-                        reserved.add(key)
-                planned_item = {"item": item, "target_dir": target_dir,
+                    key = str(target).casefold()
+                    if target.exists() or key in reserved:
+                        raise FileExistsError(f"既存または重複する出力先があります:\n{target}")
+                    reserved.add(key)
+                planned_item = {"item": item, "target_dir": target_dir, "system": system,
                                 "rom_target": rom_target, "img_target": img_target,
                                 "xml_target": xml_target}
                 planned.append(planned_item)
@@ -380,16 +507,15 @@ class App(tk.Tk):
             messagebox.showerror("事前確認エラー", f"{exc}\n\nファイルはコピーしていません。")
             return
 
-        copied = []
         try:
             for entry in planned:
                 target_dir = entry["target_dir"]
                 (target_dir / "images").mkdir(parents=True, exist_ok=True)
                 shutil.copy2(entry["item"]["path"], entry["rom_target"])
-                copied.append(entry["rom_target"])
-                if entry["img_target"]:
+                if entry["item"]["image"]:
                     shutil.copy2(entry["item"]["image"], entry["img_target"])
-                    copied.append(entry["img_target"])
+                else:
+                    create_placeholder_image(entry["img_target"], entry["rom_target"].stem, entry["system"])
 
             for folder, entries in xml_groups.items():
                 root_xml = ET.Element("gameList")
@@ -400,12 +526,11 @@ class App(tk.Tk):
                     game = ET.SubElement(root_xml, "game")
                     xml_text(game, "gameid", rom_target.stem)
                     xml_text(game, "path", "./" + rom_target.name)
-                    if img_target:
-                        xml_text(game, "image", "./images/" + img_target.name)
+                    xml_text(game, "image", "./images/" + img_target.name)
                     xml_text(game, "video_id", "7")
                     xml_text(game, "class_type", "7")
                     xml_text(game, "game_type", "0")
-                    xml_text(game, "timer", item["system"] or folder.name)
+                    xml_text(game, "timer", entry["system"])
                     xml_text(game, "zh_CN", rom_target.stem)
                     xml_text(game, "en_US", rom_target.stem)
                     xml_text(game, "zh_TW", rom_target.stem)
@@ -415,11 +540,10 @@ class App(tk.Tk):
                 ET.indent(tree, space="\t")
                 xml_path = folder / "gamelist.xml"
                 tree.write(xml_path, encoding="utf-8", xml_declaration=True)
-                copied.append(xml_path)
 
             messagebox.showinfo("完了",
-                f"処理が完了しました。\nROM: {len(planned)}件\n出力フォルダ: {len(xml_groups)}個")
-            self.status_var.set(f"完了：ROM {len(planned)}件、出力フォルダ {len(xml_groups)}個")
+                f"処理が完了しました。\nROM: {len(planned)}件\n代替画像の自動生成: {sum(1 for x in planned if not x['item']['image'])}件\n出力フォルダ: {len(xml_groups)}個")
+            self.status_var.set(f"完了：ROM {len(planned)}件、代替画像 {sum(1 for x in planned if not x['item']['image'])}件")
         except Exception as exc:
             messagebox.showerror("処理エラー",
                 f"処理中にエラーが発生しました。\n{exc}\n一部の出力ファイルが作成されている可能性があります。")
