@@ -363,9 +363,15 @@ class App(tk.Tk):
         if not files:
             messagebox.showinfo("ROMなし", "配下に対応する拡張子のROMが見つかりませんでした。")
 
+    def _image_filename(self, item):
+        # Include the ROM extension so e.g. Excitebike.nes and Excitebike.zip
+        # cannot reserve the same images/Excitebike.png output path.
+        path, image = item["path"], item["image"]
+        return path.name + image.suffix.lower() if image else path.name + ".png"
+
     def _insert(self, item):
         path, image = item["path"], item["image"]
-        output = path.stem + image.suffix.lower() if image else "(自動生成)"
+        output = self._image_filename(item)
         self.tree.insert("", "end", iid=str(item["uid"]), values=(
             path.name, item["folder"] or "（上位フォルダ直下）",
             item["system"] or "未指定", str(image) if image else "（未指定・自動生成）", output
@@ -383,7 +389,7 @@ class App(tk.Tk):
         self.tree.item(iid, values=(
             path.name, item["folder"] or "（上位フォルダ直下）",
             item["system"] or "未指定", str(image) if image else "（未指定・自動生成）",
-            path.stem + image.suffix.lower() if image else "(自動生成)"
+            self._image_filename(item)
         ))
 
     def choose_image(self):
@@ -527,7 +533,7 @@ class App(tk.Tk):
                 target_dir = self._target_folder(item, dest)
                 rom_target = target_dir / item["path"].name
                 system = item["system"]
-                img_target = (target_dir / "images" / (item["path"].stem + item["image"].suffix.lower())) if item["image"] else (target_dir / "images" / (item["path"].stem + ".png"))
+                img_target = target_dir / "images" / self._image_filename(item)
                 xml_target = target_dir / "gamelist.xml"
                 for target in (rom_target, img_target):
                     key = str(target).casefold()
