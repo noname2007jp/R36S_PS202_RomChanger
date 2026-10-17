@@ -355,7 +355,7 @@ class App(tk.Tk):
                 top_folder = rel.parts[0]
                 system = top_folder if top_folder in SYSTEMS else EXT_SYSTEM.get(path.suffix.lower(), "")
             item = {"uid": self.next_uid, "path": path, "rel": rel,
-                    "folder": folder, "system": system, "image": None}
+                    "folder": folder, "system": system, "output_folder": None, "image": None}
             self.next_uid += 1
             self.items.append(item)
             self._insert(item)
@@ -449,10 +449,50 @@ class App(tk.Tk):
     def on_double_click(self, event):
         if self.tree.identify("region", event.x, event.y) != "cell":
             return
-        if self.tree.identify_column(event.x) == "#4":
+        iid = self.tree.identify_row(event.y)
+        column = self.tree.identify_column(event.x)
+        if column == "#4":
+            if iid:
+                self.tree.selection_set(iid)
             self.choose_image()
+        elif column == "#3" and iid:
+            item = next((x for x in self.items if str(x["uid"]) == iid), None)
+            if item and not item["system"]:
+                self._edit_unknown_system(item, iid)
+
+    def _edit_unknown_system(self, item, iid):
+        # Only rows whose system could not be inferred receive this dropdown.
+        bbox = self.tree.bbox(iid, "#3")
+        if not bbox:
+            return
+        x, y, width, height = bbox
+        combo = ttk.Combobox(self.tree, values=SYSTEMS, state="readonly")
+        combo.place(x=x, y=y, width=width, height=height)
+        if item.get("output_folder"):
+            combo.set(item["system"])
+        else:
+            combo.set("")
+        combo.focus_set()
+
+        def apply(_event=None):
+            chosen = combo.get().strip()
+            combo.destroy()
+            if not chosen:
+                return
+            item["system"] = chosen
+            # Use the chosen system as the destination folder under roms.
+            item["output_folder"] = chosen
+            self._refresh_row(item)
+            self.status_var.set(f"{item['path'].name}: システム／出力先を {chosen} に設定しました。")
+
+        combo.bind("<<ComboboxSelected>>", apply)
+        combo.bind("<Escape>", lambda _event: combo.destroy())
+        combo.bind("<FocusOut>", lambda _event: combo.destroy())
 
     def _target_folder(self, item, dest):
+        # Explicit assignment from the dropdown takes precedence over source folders.
+        if item.get("output_folder"):
+            return dest / item["output_folder"]
         rel_parent = item["rel"].parent
         if rel_parent == Path("."):
             if not item["system"]:
@@ -482,9 +522,14 @@ class App(tk.Tk):
         reserved = set()
         try:
             for item in self.items:
+                if not item["system"]:
+                    raise ValueError(
+                        f"システム／出力先が未指定です: {item['path'].name}\n"
+                        "一覧の「システム / 出力先」欄をダブルクリックして選択してください。"
+                    )
                 target_dir = self._target_folder(item, dest)
                 rom_target = target_dir / item["path"].name
-                system = item["system"] or target_dir.name
+                system = item["system"]
                 img_target = (target_dir / "images" / (item["path"].stem + item["image"].suffix.lower())) if item["image"] else (target_dir / "images" / (item["path"].stem + ".png"))
                 xml_target = target_dir / "gamelist.xml"
                 for target in (rom_target, img_target):
