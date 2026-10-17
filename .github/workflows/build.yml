@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "main.py"
+      - "rom_gamelist_builder.py"
       - ".github/workflows/build.yml"
 
 jobs:
