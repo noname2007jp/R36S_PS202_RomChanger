@@ -65,18 +65,41 @@ def xml_text(parent, tag, value):
     return child
 
 def _font(size, bold=False):
+    """Prefer Japanese-capable fonts so game titles render correctly."""
     if ImageFont is None:
         return None
-    candidates = (
-        [r"C:\Windows\Fonts\arialbd.ttf", r"C:\Windows\Fonts\segoeuib.ttf"]
+
+    import sys
+    from pathlib import Path
+
+    candidates = []
+    # A bundled font is preferred in PyInstaller builds; sys._MEIPASS points
+    # to the temporary extraction directory for one-file EXEs.
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    bundled_names = (
+        ["NotoSansCJKjp-Bold.otf", "NotoSansJP-Bold.ttf", "meiryo.ttc", "YuGothB.ttc"]
         if bold else
-        [r"C:\Windows\Fonts\arial.ttf", r"C:\Windows\Fonts\segoeui.ttf"]
+        ["NotoSansCJKjp-Regular.otf", "NotoSansJP-Regular.ttf", "meiryo.ttc", "YuGothR.ttc"]
     )
+    for name in bundled_names:
+        candidates.append(str(bundle_root / "fonts" / name))
+        candidates.append(str(bundle_root / name))
+
+    windows_fonts = Path(r"C:\\Windows\\Fonts")
+    windows_names = (
+        ["meiryob.ttc", "YuGothB.ttc", "msgothic.ttc", "arialbd.ttf"]
+        if bold else
+        ["meiryo.ttc", "YuGothR.ttc", "msgothic.ttc", "arial.ttf"]
+    )
+    candidates.extend(str(windows_fonts / name) for name in windows_names)
+
     for candidate in candidates:
         try:
             return ImageFont.truetype(candidate, size)
-        except OSError:
+        except (OSError, ValueError):
             pass
+
+    # DejaVu/Arial may lack Japanese glyphs; keep as a last resort only.
     try:
         return ImageFont.truetype("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf", size)
     except OSError:
