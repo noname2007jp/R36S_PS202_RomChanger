@@ -301,6 +301,8 @@ class App(tk.Tk):
         self.status_var = tk.StringVar(value="ROMの上位フォルダを選択してください。")
         self.items = []
         self.next_uid = 0
+        self.system_images = {}
+        self.display_title_var = tk.StringVar()
         self._build_ui()
 
     def _build_ui(self):
@@ -316,8 +318,9 @@ class App(tk.Tk):
 
         actions = ttk.Frame(self, padding=(10, 0, 10, 8))
         actions.pack(fill="x")
-        ttk.Button(actions, text="配下のROMを一括読み込み", command=self.load_roms).pack(side="left")
-        ttk.Label(actions, text="不要なROMは選択してリストから外せます。").pack(side="left", padx=12)
+        ttk.Button(actions, text="配下のROMを追加読み込み", command=lambda: self.load_roms(append=True)).pack(side="left")
+        ttk.Button(actions, text="選択ROMのシステムを一括設定", command=self.bulk_assign_system).pack(side="left", padx=6)
+        ttk.Label(actions, text="追加読み込みは既存リストを保持します。").pack(side="left", padx=8)
 
         columns = ("rom", "folder", "system", "image", "output")
         self.tree = ttk.Treeview(self, columns=columns, show="headings", selectmode="extended")
@@ -337,11 +340,14 @@ class App(tk.Tk):
 
         controls = ttk.Frame(self, padding=10)
         controls.pack(fill="x")
-        ttk.Button(controls, text="選択ROMの画像を選ぶ...", command=self.choose_image).pack(side="left")
+        ttk.Button(controls, text="選択ROMのゲーム画像を選ぶ...", command=self.choose_image).pack(side="left")
+        ttk.Button(controls, text="選択システムの実機画像を設定...", command=self.choose_system_image).pack(side="left", padx=5)
         ttk.Button(controls, text="画像を解除", command=self.clear_image).pack(side="left", padx=5)
         ttk.Button(controls, text="選択ROMをリストから削除", command=self.remove_selected).pack(side="left", padx=5)
         ttk.Button(controls, text="選択フォルダ内をまとめて削除", command=self.remove_folder_items).pack(side="left", padx=5)
-        ttk.Button(controls, text="リストを再読み込み", command=self.load_roms).pack(side="left", padx=5)
+        ttk.Button(controls, text="表示文字を選択ROMに設定", command=self.set_display_title).pack(side="left", padx=5)
+        ttk.Entry(controls, textvariable=self.display_title_var, width=20).pack(side="left", padx=4)
+        ttk.Button(controls, text="リストをクリアして再読み込み", command=self.load_roms).pack(side="left", padx=5)
         ttk.Button(controls, text="生成・コピーを実行", command=self.execute).pack(side="right")
 
         ttk.Label(self, textvariable=self.status_var, relief="sunken", anchor="w", padding=5).pack(fill="x", side="bottom")
@@ -357,18 +363,23 @@ class App(tk.Tk):
         if p:
             self.dest_var.set(p)
 
-    def load_roms(self):
+    def load_roms(self, append=False):
         root = Path(self.source_var.get().strip().strip('"'))
         if not root.is_dir():
             messagebox.showerror("入力エラー", "有効なROM保存元フォルダを指定してください。")
             return
-        self.items.clear()
-        self.tree.delete(*self.tree.get_children())
-        self.next_uid = 0
+        if not append:
+            self.items.clear()
+            self.tree.delete(*self.tree.get_children())
+            self.next_uid = 0
+        existing_paths = {str(item["path"]).casefold() for item in self.items}
         files = sorted((p for p in root.rglob("*")
                         if p.is_file() and p.suffix.lower() in ROM_EXTS),
                        key=lambda p: str(p.relative_to(root)).lower())
+        added = 0
         for path in files:
+            if str(path).casefold() in existing_paths:
+                continue
             rel = path.relative_to(root)
             if rel.parent == Path("."):
                 folder = ""
@@ -378,18 +389,25 @@ class App(tk.Tk):
                 top_folder = rel.parts[0]
                 system = top_folder if top_folder in SYSTEMS else EXT_SYSTEM.get(path.suffix.lower(), "")
             item = {"uid": self.next_uid, "path": path, "rel": rel,
-                    "folder": folder, "system": system, "output_folder": None, "image": None}
+                    "folder": folder, "system": system, "output_folder": None, "image": None,
+                    "display_title": path.stem}
             self.next_uid += 1
             self.items.append(item)
             self._insert(item)
-        self.status_var.set(f"{len(self.items)}件のROMを読み込みました。不要な項目はリストから削除してください。")
+            existing_paths.add(str(path).casefold())
+            added += 1
+        self.status_var.set(f"今回追加：{added}件／処理対象合計：{len(self.items)}件")
         if not files:
             messagebox.showinfo("ROMなし", "配下に対応する拡張子のROMが見つかりませんでした。")
+        elif added == 0:
+            messagebox.showinfo("追加対象なし", "新しく追加できるROMはありませんでした（重複を除外しました）。")
+
+    def _effective_image(self, item):
+        return item.get("image") or self.system_images.get(item.get("system"))
 
     def _image_filename(self, item):
-        # Include the ROM extension so e.g. Excitebike.nes and Excitebike.zip
-        # cannot reserve the same images/Excitebike.png output path.
-        path, image = item["path"], item["image"]
+        # Include the ROM extension so same-stem ROMs cannot collide.
+        path, image = item["path"], self._effective_image(item)
         return path.name + image.suffix.lower() if image else path.name + ".png"
 
     def _insert(self, item):
@@ -414,6 +432,71 @@ class App(tk.Tk):
             item["system"] or "未指定", str(image) if image else "（未指定・自動生成）",
             self._image_filename(item)
         ))
+
+    def bulk_assign_system(self):
+        selected = self._selected_items()
+        if not selected:
+            messagebox.showinfo("選択", "システムを設定するROMを複数選択してください。")
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title("選択ROMのシステムを一括設定")
+        dialog.transient(self)
+        dialog.grab_set()
+        ttk.Label(dialog, text=f"{len(selected)}件のROMに設定するシステム／出力先").pack(padx=12, pady=(12, 4))
+        value = tk.StringVar(value=selected[0].get("output_folder") or selected[0].get("system") or SYSTEMS[0])
+        combo = ttk.Combobox(dialog, textvariable=value, values=SYSTEMS, state="readonly", width=22)
+        combo.pack(padx=12, pady=4)
+        def apply():
+            chosen = value.get().strip()
+            if not chosen:
+                return
+            for item in selected:
+                item["system"] = chosen
+                item["output_folder"] = chosen
+                self._refresh_row(item)
+            self.status_var.set(f"選択した{len(selected)}件を {chosen} に設定しました。")
+            dialog.destroy()
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill="x", padx=12, pady=12)
+        ttk.Button(buttons, text="設定", command=apply).pack(side="right")
+        ttk.Button(buttons, text="キャンセル", command=dialog.destroy).pack(side="right", padx=6)
+        combo.focus_set()
+
+    def choose_system_image(self):
+        selected = self._selected_items()
+        if not selected:
+            messagebox.showinfo("選択", "実機画像を設定するシステムのROMを選択してください。")
+            return
+        systems = sorted({item.get("system") for item in selected if item.get("system")})
+        if len(systems) != 1:
+            messagebox.showinfo("システムを確認", "同じシステムのROMだけを選択してください。先にシステムを設定してください。")
+            return
+        system = systems[0]
+        selected_path = filedialog.askopenfilename(
+            title=f"{system} の実機写真を選択",
+            filetypes=[("画像ファイル", "*.png *.jpg *.jpeg *.bmp *.webp *.gif"), ("すべてのファイル", "*.*")]
+        )
+        if not selected_path:
+            return
+        self.system_images[system] = Path(selected_path)
+        for item in self.items:
+            if item.get("system") == system:
+                self._refresh_row(item)
+        self.status_var.set(f"{system} の実機画像を設定しました。個別のゲーム画像があるROMでは個別画像を優先します。")
+
+    def set_display_title(self):
+        selected = self._selected_items()
+        if not selected:
+            messagebox.showinfo("選択", "表示文字を設定するROMを選択してください。")
+            return
+        title = self.display_title_var.get().strip()
+        if not title:
+            messagebox.showinfo("表示文字が空です", "表示文字を入力してください。")
+            return
+        for item in selected:
+            item["display_title"] = title
+            self._refresh_row(item)
+        self.status_var.set(f"選択した{len(selected)}件の画像表示文字を設定しました。")
 
     def choose_image(self):
         selected = self._selected_items()
@@ -592,10 +675,11 @@ class App(tk.Tk):
                 target_dir = entry["target_dir"]
                 (target_dir / "images").mkdir(parents=True, exist_ok=True)
                 shutil.copy2(entry["item"]["path"], entry["rom_target"])
-                if entry["item"]["image"]:
-                    shutil.copy2(entry["item"]["image"], entry["img_target"])
+                effective_image = self._effective_image(entry["item"])
+                if effective_image:
+                    shutil.copy2(effective_image, entry["img_target"])
                 else:
-                    create_placeholder_image(entry["img_target"], entry["rom_target"].stem, entry["system"])
+                    create_placeholder_image(entry["img_target"], entry["item"].get("display_title") or entry["rom_target"].stem, entry["system"])
 
             for folder, entries in xml_groups.items():
                 root_xml = ET.Element("gameList")
@@ -621,9 +705,10 @@ class App(tk.Tk):
                 xml_path = folder / "gamelist.xml"
                 tree.write(xml_path, encoding="utf-8", xml_declaration=True)
 
+            generated_count = sum(1 for x in planned if not self._effective_image(x["item"]))
             messagebox.showinfo("完了",
-                f"処理が完了しました。\nROM: {len(planned)}件\n代替画像の自動生成: {sum(1 for x in planned if not x['item']['image'])}件\n出力フォルダ: {len(xml_groups)}個")
-            self.status_var.set(f"完了：ROM {len(planned)}件、代替画像 {sum(1 for x in planned if not x['item']['image'])}件")
+                f"処理が完了しました。\nROM: {len(planned)}件\n代替画像の自動生成: {generated_count}件\n出力フォルダ: {len(xml_groups)}個")
+            self.status_var.set(f"完了：ROM {len(planned)}件、代替画像 {generated_count}件")
         except Exception as exc:
             messagebox.showerror("処理エラー",
                 f"処理中にエラーが発生しました。\n{exc}\n一部の出力ファイルが作成されている可能性があります。")
